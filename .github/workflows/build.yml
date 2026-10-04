@@ -1,0 +1,43 @@
+name: Build EXE
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install pyinstaller
+    
+    - name: Build GUI EXE
+      run: |
+        pyinstaller --onefile --noconsole --name AutomaticOperation AutomaticOperation_GUI.py
+    
+    - name: Upload EXE artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: AutomaticOperation-Windows
+        path: dist/AutomaticOperation.exe
+        retention-days: 90
+    
+    - name: Display success message
+      run: |
+        echo "✅ Build completed successfully!"
+        echo "📦 Download the EXE from Artifacts section above"
