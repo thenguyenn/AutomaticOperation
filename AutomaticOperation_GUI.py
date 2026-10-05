@@ -6,12 +6,13 @@ import json
 import time
 import threading
 import os
+import pygetwindow as gw
 
 class AutoOperationGUI:
     def __init__(self):
         self.root = tk.Tk()
         self.root.title("Automatic Operation")
-        self.root.geometry("350x300")
+        self.root.geometry("350x260")
         self.root.resizable(False, False)
         
         # Data
@@ -68,13 +69,7 @@ class AutoOperationGUI:
         # Separator
         ttk.Separator(main_frame, orient='horizontal').pack(fill=tk.X, pady=10)
         
-        # Save/Load/Clear buttons
-        btn_save = ttk.Button(main_frame, text="Lưu cấu hình", command=self.save_config_gui, width=30)
-        btn_save.pack(pady=3)
-        
-        btn_load = ttk.Button(main_frame, text="Tải cấu hình", command=self.load_config_gui, width=30)
-        btn_load.pack(pady=3)
-        
+        # Clear button only
         btn_clear = ttk.Button(main_frame, text="Xóa tất cả", command=self.clear_all, width=30)
         btn_clear.pack(pady=3)
         
@@ -124,9 +119,28 @@ class AutoOperationGUI:
         """Record click position"""
         self.status_label.config(text="Ghi vị trí: Di chuyển chuột, nhấn F4 để lưu, ESC để hoàn thành")
         
+        # Create a temporary overlay window to show coordinates
+        overlay = tk.Toplevel(self.root)
+        overlay.title("Vị trí hiện tại")
+        overlay.attributes('-topmost', True)
+        overlay.geometry("300x100+10+10")
+        
+        coord_label = ttk.Label(overlay, text="Di chuyển chuột...", font=('Arial', 12))
+        coord_label.pack(pady=20)
+        
+        count_label = ttk.Label(overlay, text="Đã lưu: 0 vị trí", font=('Arial', 10), foreground='blue')
+        count_label.pack(pady=5)
+        
+        def update_position():
+            if self.recording:
+                x, y = pyautogui.position()
+                coord_label.config(text=f"Vị trí: ({x}, {y})")
+                overlay.after(50, update_position)
+        
         def record_thread():
             self.recording = True
             self.recorded_count = 0
+            update_position()
             
             def on_key(event):
                 if not self.recording:
@@ -138,6 +152,7 @@ class AutoOperationGUI:
                         x, y = pyautogui.position()
                         self.add_step('click', x=x, y=y)
                         self.recorded_count += 1
+                        count_label.config(text=f"✓ Đã lưu: {self.recorded_count} vị trí")
                         msg = f"✓ Đã lưu vị trí {self.recorded_count}: ({x}, {y}) | F4: Tiếp tục, ESC: Hoàn thành"
                         self.root.after(0, lambda: self.status_label.config(text=msg))
                     except Exception as e:
@@ -147,6 +162,7 @@ class AutoOperationGUI:
                 elif event.name == 'esc':
                     self.recording = False
                     keyboard.unhook_all()
+                    overlay.destroy()
                     # Show confirmation popup
                     self.root.after(100, lambda: self.show_record_complete_popup(self.recorded_count))
             
@@ -390,16 +406,51 @@ class AutoOperationGUI:
         
         # Confirm execution
         next_line_text = "CÓ" if auto_next_line else "KHÔNG"
-        msg = f"Sẽ thực thi:\n\n"
+        msg = f"⚠️ CHUẨN BỊ:\n\n"
+        msg += f"Đảm bảo đã mở:\n"
+        msg += f"  ✓ WPS (con trỏ ở đầu dòng đầu tiên)\n"
+        msg += f"  ✓ Browser (form cần điền)\n\n"
+        msg += f"⚠️ QUAN TRỌNG:\n"
+        msg += f"  • Chỉ mở 2 cửa sổ: WPS và Browser\n"
+        msg += f"  • Đóng tất cả cửa sổ khác để Alt+Tab hoạt động đúng\n\n"
+        msg += f"━━━━━━━━━━━━━━━━━━━━\n\n"
         msg += f"• Số vị trí click: {len(self.steps)}\n"
         msg += f"• Số lần lặp: {loop_count}\n"
-        msg += f"• Tự động Copy/Paste từ WPS: CÓ\n"
         msg += f"• Tự động xuống dòng WPS: {next_line_text}\n\n"
-        msg += "Bắt đầu sau 3 giây. Nhấn ESC để dừng.\n\n"
-        msg += "Bạn có muốn tiếp tục?"
+        msg += f"🔍 TỰ ĐỘNG NHẬN DIỆN:\n"
+        msg += f"  • Đang ở WPS → Copy → Tab Browser → Steps\n"
+        msg += f"  • Đang ở Browser → Tab WPS → Copy → Tab Browser → Steps\n\n"
+        msg += f"Workflow mỗi vòng:\n"
+        msg += f"  1. Nhận diện cửa sổ hiện tại\n"
+        msg += f"  2. Tự động điều hướng đến WPS\n"
+        msg += f"  3. Copy dòng từ WPS\n"
+        msg += f"  4. Tab Browser → Paste vào {len(self.steps)} vị trí\n"
+        msg += f"  5. Tab WPS → Xuống dòng\n\n"
+        msg += f"━━━━━━━━━━━━━━━━━━━━\n\n"
+        msg += "Bạn có thể ở BẤT KỲ cửa sổ nào,\n"
+        msg += "chương trình sẽ TỰ ĐỘNG điều hướng!\n\n"
+        msg += "Nhấn OK để bắt đầu sau 3 giây.\n"
+        msg += "Nhấn SPACE để dừng.\n\n"
+        msg += "Sẵn sàng chưa?"
         
         if messagebox.askyesno("Xác nhận thực thi", msg):
             self.run_execution(loop_count, auto_next_line)
+    
+    def get_active_window_type(self):
+        """Detect if current active window is WPS or Browser"""
+        try:
+            active = gw.getActiveWindow()
+            if active:
+                title = active.title.lower()
+                # Check for WPS keywords
+                if 'wps' in title or 'spreadsheet' in title or 'et' in title:
+                    return 'WPS'
+                # Check for Browser keywords
+                elif 'chrome' in title or 'firefox' in title or 'edge' in title or 'browser' in title:
+                    return 'Browser'
+            return 'Unknown'
+        except:
+            return 'Unknown'
     
     def run_execution(self, loop_count, auto_next_line):
         """Run execution in thread"""
@@ -408,11 +459,20 @@ class AutoOperationGUI:
         
         def execute_thread():
             try:
+                # Setup Space key listener to stop execution
+                def on_space(event):
+                    if event.name == 'space' and self.executing:
+                        self.executing = False
+                        self.root.after(0, lambda: messagebox.showinfo("Dừng", "Đã dừng loop bởi người dùng (Space)"))
+                
+                keyboard.on_press(on_space)
+                
                 # Countdown
                 for i in range(3, 0, -1):
                     if not self.executing:
+                        keyboard.unhook_all()
                         return
-                    self.status_label.config(text=f"Bắt đầu sau {i} giây... (Nhấn ESC để hủy)")
+                    self.status_label.config(text=f"Bắt đầu sau {i} giây... Đang nhận diện cửa sổ...")
                     time.sleep(1)
                 
                 # Execute loops
@@ -420,74 +480,118 @@ class AutoOperationGUI:
                     if not self.executing:
                         break
                     
-                    self.status_label.config(text=f"🔄 Vòng {loop+1}/{loop_count}")
+                    # BƯỚC 1: DETECT cửa sổ hiện tại mỗi vòng lặp
+                    current_window = self.get_active_window_type()
+                    self.status_label.config(text=f"🔄 Vòng {loop+1}/{loop_count} - Phát hiện: {current_window}")
+                    time.sleep(0.3)
                     
-                    # Execute all click steps
+                    # BƯỚC 2: Điều hướng đến WPS nếu cần
+                    if current_window == 'Browser':
+                        self.status_label.config(text=f"Vòng {loop+1}/{loop_count} - Đang ở Browser → Tab sang WPS...")
+                        pyautogui.hotkey('alt', 'tab')
+                        time.sleep(0.8)
+                    elif current_window == 'WPS':
+                        self.status_label.config(text=f"Vòng {loop+1}/{loop_count} - Đã ở WPS → Copy ngay!")
+                        time.sleep(0.3)
+                    else:
+                        # Unknown - giả định cần tab sang WPS
+                        self.status_label.config(text=f"Vòng {loop+1}/{loop_count} - Không xác định → Tab sang WPS...")
+                        pyautogui.hotkey('alt', 'tab')
+                        time.sleep(0.8)
+                    
+                    # BƯỚC 3: Copy TOÀN BỘ từ WPS (giờ chắc chắn đang ở WPS)
+                    self.status_label.config(text=f"Vòng {loop+1}/{loop_count} - Đang copy từ WPS...")
+                    
+                    # Chọn toàn bộ dòng hiện tại (Shift+End để chọn đến cuối dòng)
+                    pyautogui.hotkey('shift', 'end')
+                    time.sleep(0.3)
+                    
+                    # Copy
+                    pyautogui.hotkey('ctrl', 'c')
+                    time.sleep(0.4)
+                    
+                    # Bỏ chọn (nhấn phím mũi tên phải)
+                    pyautogui.press('right')
+                    time.sleep(0.2)
+                    
+                    # BƯỚC 4: Tab sang Browser
+                    self.status_label.config(text=f"Vòng {loop+1}/{loop_count} - Tab sang Browser...")
+                    time.sleep(0.3)
+                    
+                    # Tab và verify
+                    for attempt in range(2):  # Thử tối đa 2 lần
+                        pyautogui.hotkey('alt', 'tab')
+                        time.sleep(1.0)
+                        
+                        verify_window = self.get_active_window_type()
+                        self.status_label.config(text=f"Vòng {loop+1}/{loop_count} - Phát hiện: {verify_window}")
+                        
+                        if verify_window == 'Browser':
+                            self.status_label.config(text=f"Vòng {loop+1}/{loop_count} - ✓ Đã ở Browser, bắt đầu paste...")
+                            time.sleep(0.3)
+                            break
+                        elif verify_window == 'WPS' and attempt < 1:
+                            # Vẫn ở WPS, thử tab lần nữa
+                            self.status_label.config(text=f"Vòng {loop+1}/{loop_count} - Vẫn ở WPS, tab lại...")
+                            time.sleep(0.3)
+                        else:
+                            # Unknown hoặc hết lần thử
+                            self.status_label.config(text=f"Vòng {loop+1}/{loop_count} - Giả định đã tab xong, tiếp tục...")
+                            time.sleep(0.3)
+                            break
+                    
+                    # BƯỚC 5: Thực hiện TẤT CẢ các step với dữ liệu đã copy
                     for i, step in enumerate(self.steps, 1):
                         if not self.executing:
                             break
                         
-                        # Click
-                        self.status_label.config(text=f"Vòng {loop+1}/{loop_count} - Click {i}/{len(self.steps)}")
+                        # Click vào vị trí
+                        self.status_label.config(text=f"Vòng {loop+1}/{loop_count} - Step {i}/{len(self.steps)}: Click ({step['x']}, {step['y']})")
                         pyautogui.click(step['x'], step['y'])
                         time.sleep(0.3)
                         
-                        # Auto Copy/Paste from WPS after each click
-                        self.status_label.config(text=f"Vòng {loop+1}/{loop_count} - Copy/Paste {i}/{len(self.steps)}")
+                        # Xóa text cũ
+                        pyautogui.hotkey('ctrl', 'a')
+                        time.sleep(0.1)
+                        pyautogui.press('delete')
+                        time.sleep(0.2)
                         
-                        # Switch to WPS
-                        pyautogui.hotkey('alt', 'tab')
-                        time.sleep(0.5)
-                        
-                        # Copy
-                        pyautogui.hotkey('ctrl', 'c')
-                        time.sleep(0.3)
-                        
-                        # Switch back to browser
-                        pyautogui.hotkey('alt', 'tab')
-                        time.sleep(0.5)
-                        
-                        # Paste
+                        # Paste (cùng 1 dữ liệu đã copy từ WPS)
+                        self.status_label.config(text=f"Vòng {loop+1}/{loop_count} - Step {i}/{len(self.steps)}: Paste")
                         pyautogui.hotkey('ctrl', 'v')
                         time.sleep(0.3)
                     
-                    # Auto next line in WPS after each loop (except last one)
-                    if auto_next_line and loop < loop_count - 1:
-                        self.status_label.config(text=f"Vòng {loop+1}/{loop_count} hoàn thành - Xuống dòng WPS...")
-                        
-                        # Switch to WPS
-                        pyautogui.hotkey('alt', 'tab')
-                        time.sleep(0.5)
-                        
-                        # Press Down arrow to go to next line
-                        pyautogui.press('down')
+                    # BƯỚC 6: Sau khi hoàn thành tất cả steps, tab về WPS và xuống dòng
+                    if loop < loop_count - 1 or auto_next_line:
+                        self.status_label.config(text=f"Vòng {loop+1}/{loop_count} hoàn thành - Tab về WPS...")
                         time.sleep(0.3)
                         
-                        # Switch back to browser
+                        # Tab về WPS
                         pyautogui.hotkey('alt', 'tab')
-                        time.sleep(0.5)
+                        time.sleep(1.0)  # Tăng thời gian chờ
+                        
+                        # Nhấn Home để về đầu dòng
+                        pyautogui.press('home')
+                        time.sleep(0.2)
+                        
+                        # Nhấn Down để xuống dòng tiếp theo
+                        if auto_next_line:
+                            pyautogui.press('down')
+                            time.sleep(0.3)
                 
                 self.executing = False
+                keyboard.unhook_all()
                 self.status_label.config(text=f"✅ Hoàn thành {loop_count} vòng lặp!")
                 messagebox.showinfo("Thành công", f"Đã hoàn thành {loop_count} vòng lặp!")
                 
             except Exception as e:
                 self.executing = False
+                keyboard.unhook_all()
                 self.status_label.config(text=f"❌ Lỗi: {str(e)}")
                 messagebox.showerror("Lỗi", f"Đã xảy ra lỗi: {str(e)}")
         
         thread = threading.Thread(target=execute_thread, daemon=True)
         thread.start()
-        
-        # ESC to stop
-        def on_esc(key):
-            if key == keyboard.Key.esc and self.executing:
-                self.executing = False
-                self.status_label.config(text="Đã dừng bởi người dùng")
-                messagebox.showinfo("Thông báo", "Đã dừng thực thi")
-                return False
-        
-        keyboard.on_press(on_esc)
     
     def run(self):
         """Run GUI"""
